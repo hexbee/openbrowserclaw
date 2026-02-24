@@ -17,18 +17,18 @@ Open `http://localhost:5173`, paste your [Anthropic API key](https://console.ant
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────┐
+┌──────────────────────────────────────────────────────────┐
 │  Browser Tab (PWA)                                       │
 │                                                          │
-│  ┌──────────┐  ┌──────────┐  ┌──────────────────────── │
-│  │ Chat UI  │  │ Settings │  │ Task Manager           │ │
-│  └────┬─────┘  └────┬─────┘  └──────┬─────────────── ┘ │
+│  ┌──────────┐  ┌──────────┐  ┌────────────────────────┐  │
+│  │ Chat UI  │  │ Settings │  │ Task Manager           │  │
+│  └────┬─────┘  └─────┬────┘  └───────┬────────────────┘  │
 │       └──────────────┼───────────────┘                   │
 │                      ▼                                   │
-│              Orchestrator (main thread)                   │
-│              ├── Message queue & routing                  │
-│              ├── State machine (idle/thinking/responding) │
-│              └── Task scheduler (cron)                    │
+│              Orchestrator (main thread)                  │
+│              ├── Message queue & routing                 │
+│              ├── State machine (idle/thinking/responding)│
+│              └── Task scheduler (cron)                   │
 │                      │                                   │
 │          ┌───────────┼───────────┐                       │
 │          ▼           ▼           ▼                       │
