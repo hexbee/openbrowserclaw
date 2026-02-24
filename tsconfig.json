@@ -11,11 +11,11 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "noEmit": true,
-    "jsx": "preserve",
+    "jsx": "react-jsx",
     "outDir": "dist",
     "rootDir": ".",
     "types": []
   },
-  "include": ["src/**/*.ts", "vite-env.d.ts"],
+  "include": ["src/**/*.ts", "src/**/*.tsx", "vite-env.d.ts"],
   "exclude": ["node_modules", "dist"]
 }
