@@ -47,6 +47,8 @@ import { TelegramChannel } from './channels/telegram.js';
 import { Router } from './router.js';
 import { TaskScheduler } from './task-scheduler.js';
 import { ulid } from './ulid.js';
+import { buildAvailableSkillsXml, loadSkills, summarizeSkills } from './skills.js';
+import type { SkillSummary } from './types.js';
 
 // ---------------------------------------------------------------------------
 // Event emitter for UI updates
@@ -105,6 +107,13 @@ export class Orchestrator {
   private anthropicBaseUrl: string = DEFAULT_ANTHROPIC_BASE_URL;
   private model: string = DEFAULT_MODEL;
   private maxTokens: number = DEFAULT_MAX_TOKENS;
+  private skillsSummary: SkillSummary = {
+    total: 0,
+    valid: 0,
+    invalid: 0,
+    builtin: 0,
+    user: 0,
+  };
   private messageQueue: InboundMessage[] = [];
   private processing = false;
   private pendingScheduledTasks = new Set<string>();
@@ -136,6 +145,7 @@ export class Orchestrator {
       (await getConfig(CONFIG_KEYS.MAX_TOKENS)) || String(DEFAULT_MAX_TOKENS),
       10,
     );
+    await this.refreshSkills();
 
     // Set up router
     this.router = new Router(this.browserChat, this.telegram);
@@ -308,7 +318,10 @@ export class Orchestrator {
     }
 
     const messages = await buildConversationMessages(groupId, CONTEXT_WINDOW_SIZE);
-    const systemPrompt = buildSystemPrompt(this.assistantName, memory);
+    const skills = await loadSkills();
+    this.skillsSummary = summarizeSkills(skills);
+    const availableSkillsXml = buildAvailableSkillsXml(skills);
+    const systemPrompt = buildSystemPrompt(this.assistantName, memory, availableSkillsXml);
 
     this.agentWorker.postMessage({
       type: 'compact',
@@ -331,6 +344,16 @@ export class Orchestrator {
     this.scheduler.stop();
     this.telegram.stop();
     this.agentWorker.terminate();
+  }
+
+  getSkillsSummary(): SkillSummary {
+    return this.skillsSummary;
+  }
+
+  async refreshSkills(): Promise<SkillSummary> {
+    const skills = await loadSkills();
+    this.skillsSummary = summarizeSkills(skills);
+    return this.skillsSummary;
   }
 
   // -----------------------------------------------------------------------
@@ -429,8 +452,10 @@ export class Orchestrator {
 
     // Build conversation context
     const messages = await buildConversationMessages(groupId, CONTEXT_WINDOW_SIZE);
-
-    const systemPrompt = buildSystemPrompt(this.assistantName, memory);
+    const skills = await loadSkills();
+    this.skillsSummary = summarizeSkills(skills);
+    const availableSkillsXml = buildAvailableSkillsXml(skills);
+    const systemPrompt = buildSystemPrompt(this.assistantName, memory, availableSkillsXml);
 
     // Send to agent worker
     this.agentWorker.postMessage({
@@ -558,7 +583,11 @@ export class Orchestrator {
 // System prompt builder
 // ---------------------------------------------------------------------------
 
-function buildSystemPrompt(assistantName: string, memory: string): string {
+function buildSystemPrompt(
+  assistantName: string,
+  memory: string,
+  availableSkillsXml: string,
+): string {
   const parts = [
     `You are ${assistantName}, a personal AI assistant running in the user's browser.`,
     '',
@@ -569,6 +598,10 @@ function buildSystemPrompt(assistantName: string, memory: string): string {
     '- **fetch_url**: Make HTTP requests (subject to CORS).',
     '- **update_memory**: Persist important context to CLAUDE.md — loaded on every conversation.',
     '- **create_task**: Schedule recurring tasks with cron expressions.',
+    '- **list_skills**: List discovered skills and their validity/source.',
+    '- **activate_skill**: Load a skill by name and follow its SKILL.md instructions.',
+    '- **read_skill_resource**: Read resource files from an activated skill.',
+    '- **write_skill_file**: Create or update user skill files in OPFS.',
     '',
     'Guidelines:',
     '- Be concise and direct.',
@@ -576,6 +609,10 @@ function buildSystemPrompt(assistantName: string, memory: string): string {
     '- Update memory when you learn important preferences or context.',
     '- For scheduled tasks, confirm the schedule with the user.',
     '- Strip <internal> tags from your responses — they are for your internal reasoning only.',
+    '- If a suitable skill exists, activate it before performing complex task-specific workflows.',
+    '',
+    '## Available Skills',
+    availableSkillsXml,
   ];
 
   if (memory) {

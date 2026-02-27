@@ -15,6 +15,15 @@ import { ANTHROPIC_API_VERSION, FETCH_MAX_RESPONSE } from './config.js';
 import { readGroupFile, writeGroupFile, listGroupFiles } from './storage.js';
 import { executeShell } from './shell.js';
 import { ulid } from './ulid.js';
+import {
+  activateSkill,
+  loadSkills,
+  readSkillResource,
+  summarizeSkills,
+  writeUserSkillFile,
+} from './skills.js';
+
+const activeSkillsByGroup = new Map<string, string>();
 
 // ---------------------------------------------------------------------------
 // Message handler
@@ -330,6 +339,66 @@ async function executeTool(
         } catch (err: unknown) {
           return `JavaScript error: ${err instanceof Error ? err.message : String(err)}`;
         }
+      }
+
+      case 'list_skills': {
+        const skills = await loadSkills();
+        const summary = summarizeSkills(skills);
+        const lines = [
+          `Summary: total=${summary.total}, valid=${summary.valid}, invalid=${summary.invalid}, builtin=${summary.builtin}, user=${summary.user}`,
+          '',
+        ];
+        for (const skill of skills) {
+          const status = skill.valid ? 'valid' : 'invalid';
+          const detail = skill.valid
+            ? ''
+            : ` errors=${skill.errors.map((e) => e.code).join(',')}`;
+          lines.push(`- ${skill.name} [${skill.source}] ${status}${detail}`);
+        }
+        return lines.join('\n').trim();
+      }
+
+      case 'activate_skill': {
+        const name = String(input.name || '').trim();
+        if (!name) return 'activate_skill requires a non-empty name';
+
+        const activated = await activateSkill(name);
+        activeSkillsByGroup.set(groupId, name);
+        const allowedTools = activated.skill.frontmatter['allowed-tools']
+          ? `\nAllowed tools: ${activated.skill.frontmatter['allowed-tools']}`
+          : '';
+        return [
+          `Activated skill: ${activated.skill.name} [${activated.skill.source}]`,
+          `Description: ${activated.skill.description}`,
+          `Location: ${activated.skill.location}${allowedTools}`,
+          '',
+          '--- SKILL INSTRUCTIONS START ---',
+          activated.content,
+          '--- SKILL INSTRUCTIONS END ---',
+        ].join('\n');
+      }
+
+      case 'read_skill_resource': {
+        const nameInput = String(input.name || '').trim();
+        const path = String(input.path || '').trim();
+        if (!path) return 'read_skill_resource requires a non-empty path';
+
+        const skillName = nameInput || activeSkillsByGroup.get(groupId) || '';
+        if (!skillName) {
+          return 'No active skill for this group. Call activate_skill first or pass name explicitly.';
+        }
+
+        const content = await readSkillResource(skillName, path);
+        return content.slice(0, 100_000) || '(empty file)';
+      }
+
+      case 'write_skill_file': {
+        const name = String(input.name || '').trim();
+        const path = String(input.path || '').trim();
+        const content = String(input.content || '');
+        if (!name || !path) return 'write_skill_file requires name and path';
+        await writeUserSkillFile(name, path, content);
+        return `Wrote ${content.length} bytes to user skill ${name}/${path}`;
       }
 
       default:

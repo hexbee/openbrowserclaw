@@ -67,6 +67,7 @@ Open `http://localhost:5173`, paste your [Anthropic API key](https://console.ant
 | `src/channels/telegram.ts` | Telegram Bot API channel |
 | `src/task-scheduler.ts` | Cron expression evaluation |
 | `src/crypto.ts` | AES-256-GCM encryption for stored credentials |
+| `src/skills.ts` | Agent Skills discovery, validation, activation, resource loading |
 | `src/ui/` | Chat, settings, and task manager components |
 
 ## How It Works
@@ -88,6 +89,33 @@ Open `http://localhost:5173`, paste your [Anthropic API key](https://console.ant
 | `fetch_url` | HTTP requests via browser `fetch()` (subject to CORS) |
 | `update_memory` | Persist context to CLAUDE.md (loaded on every conversation) |
 | `create_task` | Schedule recurring tasks with cron expressions |
+| `list_skills` | List discovered skills from built-in and user sources |
+| `activate_skill` | Activate a skill and load SKILL.md instructions |
+| `read_skill_resource` | Read files from the skill directory (e.g. references/scripts) |
+| `write_skill_file` | Create/update user skill files in OPFS under `skills/<name>/` |
+
+## Agent Skills
+
+OpenBrowserClaw supports Agent Skills and follows the integration model described at:
+
+- https://agentskills.io/what-are-skills
+- https://agentskills.io/specification
+- https://agentskills.io/integrate-skills
+
+Skill sources:
+
+- Built-in skills: `src/builtin-skills/<skill-name>/SKILL.md`
+- User skills (runtime): `OPFS skills/<skill-name>/SKILL.md`
+
+Conflict rule:
+
+- If both sources provide the same skill name, user skill overrides built-in skill.
+
+Validation rules:
+
+- Skill metadata is parsed from YAML frontmatter.
+- `name` and `description` are required.
+- Invalid skills are excluded from `<available_skills>`.
 
 ## Telegram
 

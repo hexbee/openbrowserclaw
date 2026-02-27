@@ -55,6 +55,12 @@ export const DB_VERSION = 1;
 /** OPFS root directory name */
 export const OPFS_ROOT = 'openbrowserclaw';
 
+/** User skills root inside OPFS */
+export const OPFS_SKILLS_ROOT = 'skills';
+
+/** Built-in skills root in source tree */
+export const BUILTIN_SKILLS_ROOT = './builtin-skills';
+
 /** Default group for browser chat */
 export const DEFAULT_GROUP_ID = 'br:main';
 

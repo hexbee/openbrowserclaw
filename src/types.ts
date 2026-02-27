@@ -133,6 +133,41 @@ export interface ToolDefinition {
   };
 }
 
+export type SkillSource = 'builtin' | 'user';
+
+export interface SkillFrontmatter {
+  name: string;
+  description: string;
+  license?: string;
+  compatibility?: string;
+  metadata?: Record<string, string>;
+  'allowed-tools'?: string;
+}
+
+export interface SkillValidationError {
+  code: string;
+  message: string;
+}
+
+export interface SkillRecord {
+  name: string;
+  description: string;
+  source: SkillSource;
+  location: string;
+  rootPath: string;
+  frontmatter: SkillFrontmatter;
+  valid: boolean;
+  errors: SkillValidationError[];
+}
+
+export interface SkillSummary {
+  total: number;
+  valid: number;
+  invalid: number;
+  builtin: number;
+  user: number;
+}
+
 /** Orchestrator state machine */
 export type OrchestratorState = 'idle' | 'thinking' | 'responding';
 

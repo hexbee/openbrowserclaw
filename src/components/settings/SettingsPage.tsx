@@ -5,7 +5,7 @@
 import { useEffect, useState } from 'react';
 import {
   Palette, KeyRound, Eye, EyeOff, Bot, MessageSquare,
-  Smartphone, HardDrive, Lock, Check,
+  Smartphone, HardDrive, Lock, Check, Wrench,
 } from 'lucide-react';
 import { getConfig } from '../../db.js';
 import { CONFIG_KEYS, DEFAULT_ANTHROPIC_BASE_URL } from '../../config.js';
@@ -13,6 +13,7 @@ import { getStorageEstimate, requestPersistentStorage } from '../../storage.js';
 import { decryptValue } from '../../crypto.js';
 import { getOrchestrator } from '../../stores/orchestrator-store.js';
 import { useThemeStore, type ThemeChoice } from '../../stores/theme-store.js';
+import type { SkillSummary } from '../../types.js';
 
 const MODELS = [
   { value: 'claude-opus-4-6', label: 'Claude Opus 4.6' },
@@ -54,6 +55,7 @@ export function SettingsPage() {
   const [storageUsage, setStorageUsage] = useState(0);
   const [storageQuota, setStorageQuota] = useState(0);
   const [isPersistent, setIsPersistent] = useState(false);
+  const [skillsSummary, setSkillsSummary] = useState<SkillSummary>(orch.getSkillsSummary());
 
   // Theme
   const { theme, setTheme } = useThemeStore();
@@ -93,6 +95,8 @@ export function SettingsPage() {
       if (navigator.storage?.persisted) {
         setIsPersistent(await navigator.storage.persisted());
       }
+
+      setSkillsSummary(orch.getSkillsSummary());
     }
     load();
   }, []);
@@ -137,6 +141,11 @@ export function SettingsPage() {
   async function handleRequestPersistent() {
     const granted = await requestPersistentStorage();
     setIsPersistent(granted);
+  }
+
+  async function handleRefreshSkills() {
+    const summary = await orch.refreshSkills();
+    setSkillsSummary(summary);
   }
 
   const storagePercent = storageQuota > 0 ? (storageUsage / storageQuota) * 100 : 0;
@@ -357,6 +366,24 @@ export function SettingsPage() {
               <Lock className="w-3 h-3" /> Persistent storage active
             </div>
           )}
+        </div>
+      </div>
+
+      {/* ---- Skills ---- */}
+      <div className="card card-bordered bg-base-200">
+        <div className="card-body p-4 sm:p-6 gap-3">
+          <h3 className="card-title text-base gap-2"><Wrench className="w-4 h-4" /> Agent Skills</h3>
+          <div className="text-sm opacity-80">
+            total: {skillsSummary.total} · valid: {skillsSummary.valid} · invalid: {skillsSummary.invalid}
+          </div>
+          <div className="text-sm opacity-80">
+            built-in: {skillsSummary.builtin} · user: {skillsSummary.user}
+          </div>
+          <div>
+            <button className="btn btn-outline btn-sm" onClick={handleRefreshSkills}>
+              Refresh Skills
+            </button>
+          </div>
         </div>
       </div>
     </div>

@@ -169,4 +169,74 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       required: ['code'],
     },
   },
+  {
+    name: 'list_skills',
+    description:
+      'List all discovered agent skills from built-in and user sources. ' +
+      'Returns validity status and source. Use this before activating a skill explicitly.',
+    input_schema: {
+      type: 'object',
+      properties: {},
+    },
+  },
+  {
+    name: 'activate_skill',
+    description:
+      'Activate a skill by name and load SKILL.md instructions. ' +
+      'Use this when a task matches a specific skill.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        name: {
+          type: 'string',
+          description: 'Skill name to activate',
+        },
+      },
+      required: ['name'],
+    },
+  },
+  {
+    name: 'read_skill_resource',
+    description:
+      'Read a text resource file from an activated skill directory, such as ' +
+      'references or scripts. Path must be relative to the skill root.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        name: {
+          type: 'string',
+          description: 'Skill name',
+        },
+        path: {
+          type: 'string',
+          description: 'Relative file path inside the skill directory',
+        },
+      },
+      required: ['name', 'path'],
+    },
+  },
+  {
+    name: 'write_skill_file',
+    description:
+      'Create or update a user skill file in OPFS under skills/<name>/. ' +
+      'Use this to let users add or modify their own skills.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        name: {
+          type: 'string',
+          description: 'Skill name',
+        },
+        path: {
+          type: 'string',
+          description: 'Relative path inside the skill directory',
+        },
+        content: {
+          type: 'string',
+          description: 'File content',
+        },
+      },
+      required: ['name', 'path', 'content'],
+    },
+  },
 ];
