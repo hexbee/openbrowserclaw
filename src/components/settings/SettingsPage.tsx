@@ -7,8 +7,8 @@ import {
   Palette, KeyRound, Eye, EyeOff, Bot, MessageSquare,
   Smartphone, HardDrive, Lock, Check,
 } from 'lucide-react';
-import { getConfig, setConfig } from '../../db.js';
-import { CONFIG_KEYS } from '../../config.js';
+import { getConfig } from '../../db.js';
+import { CONFIG_KEYS, DEFAULT_ANTHROPIC_BASE_URL } from '../../config.js';
 import { getStorageEstimate, requestPersistentStorage } from '../../storage.js';
 import { decryptValue } from '../../crypto.js';
 import { getOrchestrator } from '../../stores/orchestrator-store.js';
@@ -35,9 +35,12 @@ export function SettingsPage() {
   const [apiKey, setApiKey] = useState('');
   const [apiKeyMasked, setApiKeyMasked] = useState(true);
   const [apiKeySaved, setApiKeySaved] = useState(false);
+  const [anthropicBaseUrl, setAnthropicBaseUrl] = useState(orch.getAnthropicBaseUrl());
+  const [anthropicBaseUrlSaved, setAnthropicBaseUrlSaved] = useState(false);
 
   // Model
   const [model, setModel] = useState(orch.getModel());
+  const [modelSaved, setModelSaved] = useState(false);
 
   // Assistant name
   const [assistantName, setAssistantName] = useState(orch.getAssistantName());
@@ -68,6 +71,8 @@ export function SettingsPage() {
           setApiKey('');
         }
       }
+      const storedAnthropicBaseUrl = await getConfig(CONFIG_KEYS.ANTHROPIC_BASE_URL);
+      setAnthropicBaseUrl(storedAnthropicBaseUrl || DEFAULT_ANTHROPIC_BASE_URL);
 
       // Telegram
       const token = await getConfig(CONFIG_KEYS.TELEGRAM_BOT_TOKEN);
@@ -98,9 +103,21 @@ export function SettingsPage() {
     setTimeout(() => setApiKeySaved(false), 2000);
   }
 
-  async function handleModelChange(value: string) {
-    setModel(value);
-    await orch.setModel(value);
+  async function handleSaveAnthropicBaseUrl() {
+    const normalized = anthropicBaseUrl.trim() || DEFAULT_ANTHROPIC_BASE_URL;
+    await orch.setAnthropicBaseUrl(normalized);
+    setAnthropicBaseUrl(normalized);
+    setAnthropicBaseUrlSaved(true);
+    setTimeout(() => setAnthropicBaseUrlSaved(false), 2000);
+  }
+
+  async function handleSaveModel() {
+    if (!model.trim()) return;
+    const normalized = model.trim();
+    setModel(normalized);
+    await orch.setModel(normalized);
+    setModelSaved(true);
+    setTimeout(() => setModelSaved(false), 2000);
   }
 
   async function handleNameSave() {
@@ -181,6 +198,35 @@ export function SettingsPage() {
           <p className="text-xs opacity-50">
             Your API key is encrypted and stored locally. It never leaves your browser.
           </p>
+
+          <fieldset className="fieldset mt-2">
+            <legend className="fieldset-legend">Anthropic Base URL</legend>
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                className="input input-bordered input-sm w-full font-mono"
+                placeholder="https://api.anthropic.com"
+                value={anthropicBaseUrl}
+                onChange={(e) => setAnthropicBaseUrl(e.target.value)}
+              />
+              <button
+                className="btn btn-secondary btn-sm"
+                onClick={handleSaveAnthropicBaseUrl}
+                disabled={!anthropicBaseUrl.trim()}
+              >
+                Save URL
+              </button>
+            </div>
+            {anthropicBaseUrlSaved && (
+              <span className="text-success text-sm flex items-center gap-1 mt-1"><Check className="w-4 h-4" /> Saved</span>
+            )}
+            <p className="fieldset-label opacity-60">
+              Advanced: for Anthropic-compatible gateways. Path <code>/v1/messages</code> is appended automatically.
+            </p>
+            <p className="fieldset-label opacity-60">
+              For <code>api-inference.modelscope.cn</code>, the app automatically uses <code>Authorization: Bearer</code> for browser compatibility.
+            </p>
+          </fieldset>
         </div>
       </div>
 
@@ -188,17 +234,36 @@ export function SettingsPage() {
       <div className="card card-bordered bg-base-200">
         <div className="card-body p-4 sm:p-6 gap-3">
           <h3 className="card-title text-base gap-2"><Bot className="w-4 h-4" /> Model</h3>
-          <select
-            className="select select-bordered select-sm"
-            value={model}
-            onChange={(e) => handleModelChange(e.target.value)}
-          >
-            {MODELS.map((m) => (
-              <option key={m.value} value={m.value}>
-                {m.label}
-              </option>
-            ))}
-          </select>
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              className="input input-bordered input-sm w-full font-mono"
+              placeholder="claude-sonnet-4-6"
+              value={model}
+              list="model-suggestions"
+              onChange={(e) => setModel(e.target.value)}
+            />
+            <datalist id="model-suggestions">
+              {MODELS.map((m) => (
+                <option key={m.value} value={m.value}>
+                  {m.label}
+                </option>
+              ))}
+            </datalist>
+            <button
+              className="btn btn-primary btn-sm"
+              onClick={handleSaveModel}
+              disabled={!model.trim()}
+            >
+              Save Model
+            </button>
+          </div>
+          {modelSaved && (
+            <span className="text-success text-sm flex items-center gap-1"><Check className="w-4 h-4" /> Saved</span>
+          )}
+          <p className="text-xs opacity-50">
+            You can enter any model name supported by your configured API endpoint.
+          </p>
         </div>
       </div>
 

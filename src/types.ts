@@ -77,6 +77,7 @@ export interface CompactPayload {
   messages: ConversationMessage[];
   systemPrompt: string;
   apiKey: string;
+  anthropicBaseUrl: string;
   model: string;
   maxTokens: number;
 }
@@ -86,6 +87,7 @@ export interface InvokePayload {
   messages: ConversationMessage[];
   systemPrompt: string;
   apiKey: string;
+  anthropicBaseUrl: string;
   model: string;
   maxTokens: number;
 }

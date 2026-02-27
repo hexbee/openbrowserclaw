@@ -22,8 +22,8 @@ export const DEFAULT_MAX_TOKENS = 8096;
 /** Default model */
 export const DEFAULT_MODEL = 'claude-sonnet-4-6';
 
-/** Anthropic API endpoint */
-export const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
+/** Anthropic API base URL (configurable, default official endpoint) */
+export const DEFAULT_ANTHROPIC_BASE_URL = 'https://api.anthropic.com';
 
 /** Anthropic API version header */
 export const ANTHROPIC_API_VERSION = '2023-06-01';
@@ -61,6 +61,7 @@ export const DEFAULT_GROUP_ID = 'br:main';
 /** Config keys */
 export const CONFIG_KEYS = {
   ANTHROPIC_API_KEY: 'anthropic_api_key',
+  ANTHROPIC_BASE_URL: 'anthropic_base_url',
   TELEGRAM_BOT_TOKEN: 'telegram_bot_token',
   TELEGRAM_CHAT_IDS: 'telegram_chat_ids',
   TRIGGER_PATTERN: 'trigger_pattern',

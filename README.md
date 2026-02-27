@@ -14,7 +14,13 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:5173`, paste your [Anthropic API key](https://console.anthropic.com/), and start chatting.
+Open `http://localhost:5173`, paste your [Anthropic API key](https://console.anthropic.com/), optionally set a custom Anthropic-compatible base URL and custom model name in Settings, and start chatting.
+
+### Third-Party Endpoints
+
+- You can set a custom Anthropic-compatible base URL in Settings. The app appends `/v1/messages` automatically.
+- You can set any model name supported by that endpoint.
+- For `https://api-inference.modelscope.cn`, the app sends `Authorization: Bearer <token>` in browser mode for CORS compatibility.
 
 ## Architecture
 
@@ -144,7 +150,7 @@ No server needed. It's just HTML, CSS, and JS.
 
 ## Security
 
-OpenBrowserClaw is a proof of concept. All data stays in your browser, nothing is sent to any server except the Anthropic API. Here's an honest look at the current security posture:
+OpenBrowserClaw is a proof of concept. All data stays in your browser, nothing is sent to any server except your configured Anthropic-compatible API endpoint. Here's an honest look at the current security posture:
 
 **What it does:**
 - API keys are encrypted at rest with AES-256-GCM using a non-extractable `CryptoKey` stored in IndexedDB. JavaScript cannot export the raw key material.

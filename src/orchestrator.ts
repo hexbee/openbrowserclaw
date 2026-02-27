@@ -25,6 +25,7 @@ import {
   CONFIG_KEYS,
   CONTEXT_WINDOW_SIZE,
   DEFAULT_GROUP_ID,
+  DEFAULT_ANTHROPIC_BASE_URL,
   DEFAULT_MAX_TOKENS,
   DEFAULT_MODEL,
   buildTriggerPattern,
@@ -101,6 +102,7 @@ export class Orchestrator {
   private triggerPattern!: RegExp;
   private assistantName: string = ASSISTANT_NAME;
   private apiKey: string = '';
+  private anthropicBaseUrl: string = DEFAULT_ANTHROPIC_BASE_URL;
   private model: string = DEFAULT_MODEL;
   private maxTokens: number = DEFAULT_MAX_TOKENS;
   private messageQueue: InboundMessage[] = [];
@@ -127,6 +129,8 @@ export class Orchestrator {
         await setConfig(CONFIG_KEYS.ANTHROPIC_API_KEY, '');
       }
     }
+    this.anthropicBaseUrl =
+      (await getConfig(CONFIG_KEYS.ANTHROPIC_BASE_URL)) || DEFAULT_ANTHROPIC_BASE_URL;
     this.model = (await getConfig(CONFIG_KEYS.MODEL)) || DEFAULT_MODEL;
     this.maxTokens = parseInt(
       (await getConfig(CONFIG_KEYS.MAX_TOKENS)) || String(DEFAULT_MAX_TOKENS),
@@ -196,6 +200,21 @@ export class Orchestrator {
     this.apiKey = key;
     const encrypted = await encryptValue(key);
     await setConfig(CONFIG_KEYS.ANTHROPIC_API_KEY, encrypted);
+  }
+
+  /**
+   * Get configured Anthropic base URL.
+   */
+  getAnthropicBaseUrl(): string {
+    return this.anthropicBaseUrl;
+  }
+
+  /**
+   * Update Anthropic base URL.
+   */
+  async setAnthropicBaseUrl(baseUrl: string): Promise<void> {
+    this.anthropicBaseUrl = baseUrl;
+    await setConfig(CONFIG_KEYS.ANTHROPIC_BASE_URL, baseUrl);
   }
 
   /**
@@ -298,6 +317,7 @@ export class Orchestrator {
         messages,
         systemPrompt,
         apiKey: this.apiKey,
+        anthropicBaseUrl: this.anthropicBaseUrl,
         model: this.model,
         maxTokens: this.maxTokens,
       },
@@ -420,6 +440,7 @@ export class Orchestrator {
         messages,
         systemPrompt,
         apiKey: this.apiKey,
+        anthropicBaseUrl: this.anthropicBaseUrl,
         model: this.model,
         maxTokens: this.maxTokens,
       },

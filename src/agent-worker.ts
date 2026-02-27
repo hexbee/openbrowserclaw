@@ -11,7 +11,7 @@
 
 import type { WorkerInbound, WorkerOutbound, InvokePayload, CompactPayload, ConversationMessage, ThinkingLogEntry, TokenUsage } from './types.js';
 import { TOOL_DEFINITIONS } from './tools.js';
-import { ANTHROPIC_API_URL, ANTHROPIC_API_VERSION, FETCH_MAX_RESPONSE } from './config.js';
+import { ANTHROPIC_API_VERSION, FETCH_MAX_RESPONSE } from './config.js';
 import { readGroupFile, writeGroupFile, listGroupFiles } from './storage.js';
 import { executeShell } from './shell.js';
 import { ulid } from './ulid.js';
@@ -43,7 +43,8 @@ self.onmessage = async (event: MessageEvent<WorkerInbound>) => {
 // ---------------------------------------------------------------------------
 
 async function handleInvoke(payload: InvokePayload): Promise<void> {
-  const { groupId, messages, systemPrompt, apiKey, model, maxTokens } = payload;
+  const { groupId, messages, systemPrompt, apiKey, anthropicBaseUrl, model, maxTokens } = payload;
+  const anthropicMessagesUrl = buildAnthropicMessagesUrl(anthropicBaseUrl);
 
   post({ type: 'typing', payload: { groupId } });
   log(groupId, 'info', 'Starting', `Model: ${model} · Max tokens: ${maxTokens}`);
@@ -67,14 +68,9 @@ async function handleInvoke(payload: InvokePayload): Promise<void> {
 
       log(groupId, 'api-call', `API call #${iterations}`, `${currentMessages.length} messages in context`);
 
-      const res = await fetch(ANTHROPIC_API_URL, {
+      const res = await fetch(anthropicMessagesUrl, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': apiKey,
-          'anthropic-version': ANTHROPIC_API_VERSION,
-          'anthropic-dangerous-direct-browser-access': 'true',
-        },
+        headers: buildAnthropicHeaders(anthropicBaseUrl, apiKey),
         body: JSON.stringify(body),
       });
 
@@ -183,7 +179,8 @@ async function handleInvoke(payload: InvokePayload): Promise<void> {
 // ---------------------------------------------------------------------------
 
 async function handleCompact(payload: CompactPayload): Promise<void> {
-  const { groupId, messages, systemPrompt, apiKey, model, maxTokens } = payload;
+  const { groupId, messages, systemPrompt, apiKey, anthropicBaseUrl, model, maxTokens } = payload;
+  const anthropicMessagesUrl = buildAnthropicMessagesUrl(anthropicBaseUrl);
 
   post({ type: 'typing', payload: { groupId } });
   log(groupId, 'info', 'Compacting context', `Summarizing ${messages.length} messages`);
@@ -216,14 +213,9 @@ async function handleCompact(payload: CompactPayload): Promise<void> {
       messages: compactMessages,
     };
 
-    const res = await fetch(ANTHROPIC_API_URL, {
+    const res = await fetch(anthropicMessagesUrl, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': ANTHROPIC_API_VERSION,
-        'anthropic-dangerous-direct-browser-access': 'true',
-      },
+      headers: buildAnthropicHeaders(anthropicBaseUrl, apiKey),
       body: JSON.stringify(body),
     });
 
@@ -385,6 +377,38 @@ function stripHtml(html: string): string {
 function getContextLimit(_model: string): number {
   // The actual session context window — 200k tokens for Claude Sonnet/Opus.
   return 200_000;
+}
+
+function buildAnthropicMessagesUrl(baseUrl: string): string {
+  const normalizedBaseUrl = baseUrl.trim().replace(/\/+$/, '');
+  return `${normalizedBaseUrl}/v1/messages`;
+}
+
+function buildAnthropicHeaders(baseUrl: string, apiKey: string): Record<string, string> {
+  // ModelScope's browser-facing gateway rejects Anthropic-specific headers in CORS
+  // preflight, so use Bearer auth for this host.
+  if (isModelScopeApiInference(baseUrl)) {
+    return {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`,
+    };
+  }
+
+  return {
+    'Content-Type': 'application/json',
+    'x-api-key': apiKey,
+    'anthropic-version': ANTHROPIC_API_VERSION,
+    'anthropic-dangerous-direct-browser-access': 'true',
+  };
+}
+
+function isModelScopeApiInference(baseUrl: string): boolean {
+  try {
+    const url = new URL(baseUrl);
+    return url.hostname === 'api-inference.modelscope.cn';
+  } catch {
+    return baseUrl.includes('api-inference.modelscope.cn');
+  }
 }
 
 function log(
