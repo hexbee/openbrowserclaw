@@ -227,13 +227,14 @@ function extractBuiltinSkillName(path: string): string | null {
 }
 
 function parseSkillMarkdown(markdown: string): ParsedSkill {
-  const fmMatch = markdown.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/);
+  const normalized = markdown.replace(/^\uFEFF/, '');
+  const fmMatch = normalized.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/);
   if (!fmMatch) {
     throw new Error('SKILL.md must start with YAML frontmatter');
   }
 
   const frontmatterRaw = fmMatch[1];
-  const body = markdown.slice(fmMatch[0].length);
+  const body = normalized.slice(fmMatch[0].length);
   const frontmatter = parseFrontmatter(frontmatterRaw);
   return { frontmatter, body };
 }

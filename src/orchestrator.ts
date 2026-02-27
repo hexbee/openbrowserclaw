@@ -351,8 +351,19 @@ export class Orchestrator {
   }
 
   async refreshSkills(): Promise<SkillSummary> {
-    const skills = await loadSkills();
-    this.skillsSummary = summarizeSkills(skills);
+    try {
+      const skills = await loadSkills();
+      this.skillsSummary = summarizeSkills(skills);
+    } catch (err) {
+      console.error('Failed to refresh skills:', err);
+      this.skillsSummary = {
+        total: 0,
+        valid: 0,
+        invalid: 0,
+        builtin: 0,
+        user: 0,
+      };
+    }
     return this.skillsSummary;
   }
 
@@ -424,52 +435,72 @@ export class Orchestrator {
     this.router.setTyping(groupId, true);
     this.events.emit('typing', { groupId, typing: true });
 
-    // If this is a scheduled task, save the prompt as a user message so
-    // it appears in conversation context and in the chat UI.
-    if (triggerContent.startsWith('[SCHEDULED TASK]')) {
-      this.pendingScheduledTasks.add(groupId);
-      const stored: StoredMessage = {
-        id: ulid(),
-        groupId,
-        sender: 'Scheduler',
-        content: triggerContent,
-        timestamp: Date.now(),
-        channel: groupId.startsWith('tg:') ? 'telegram' : 'browser',
-        isFromMe: false,
-        isTrigger: true,
-      };
-      await saveMessage(stored);
-      this.events.emit('message', stored);
-    }
-
-    // Load group memory
-    let memory = '';
     try {
-      memory = await readGroupFile(groupId, 'CLAUDE.md');
-    } catch {
-      // No memory file yet — that's fine
+      // If this is a scheduled task, save the prompt as a user message so
+      // it appears in conversation context and in the chat UI.
+      if (triggerContent.startsWith('[SCHEDULED TASK]')) {
+        this.pendingScheduledTasks.add(groupId);
+        const stored: StoredMessage = {
+          id: ulid(),
+          groupId,
+          sender: 'Scheduler',
+          content: triggerContent,
+          timestamp: Date.now(),
+          channel: groupId.startsWith('tg:') ? 'telegram' : 'browser',
+          isFromMe: false,
+          isTrigger: true,
+        };
+        await saveMessage(stored);
+        this.events.emit('message', stored);
+      }
+
+      // Load group memory
+      let memory = '';
+      try {
+        memory = await readGroupFile(groupId, 'CLAUDE.md');
+      } catch {
+        // No memory file yet — that's fine
+      }
+
+      // Build conversation context
+      const messages = await buildConversationMessages(groupId, CONTEXT_WINDOW_SIZE);
+
+      let availableSkillsXml = '<available_skills></available_skills>';
+      try {
+        const skills = await loadSkills();
+        this.skillsSummary = summarizeSkills(skills);
+        availableSkillsXml = buildAvailableSkillsXml(skills);
+      } catch (err) {
+        console.error('Failed to load skills during invoke:', err);
+        this.events.emit('error', {
+          groupId,
+          error: `Skills load failed, continuing without skills: ${err instanceof Error ? err.message : String(err)}`,
+        });
+      }
+
+      const systemPrompt = buildSystemPrompt(this.assistantName, memory, availableSkillsXml);
+
+      // Send to agent worker
+      this.agentWorker.postMessage({
+        type: 'invoke',
+        payload: {
+          groupId,
+          messages,
+          systemPrompt,
+          apiKey: this.apiKey,
+          anthropicBaseUrl: this.anthropicBaseUrl,
+          model: this.model,
+          maxTokens: this.maxTokens,
+        },
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error('invokeAgent failed before worker invocation:', err);
+      this.events.emit('error', { groupId, error: message });
+      this.events.emit('typing', { groupId, typing: false });
+      this.router.setTyping(groupId, false);
+      this.setState('idle');
     }
-
-    // Build conversation context
-    const messages = await buildConversationMessages(groupId, CONTEXT_WINDOW_SIZE);
-    const skills = await loadSkills();
-    this.skillsSummary = summarizeSkills(skills);
-    const availableSkillsXml = buildAvailableSkillsXml(skills);
-    const systemPrompt = buildSystemPrompt(this.assistantName, memory, availableSkillsXml);
-
-    // Send to agent worker
-    this.agentWorker.postMessage({
-      type: 'invoke',
-      payload: {
-        groupId,
-        messages,
-        systemPrompt,
-        apiKey: this.apiKey,
-        anthropicBaseUrl: this.anthropicBaseUrl,
-        model: this.model,
-        maxTokens: this.maxTokens,
-      },
-    });
   }
 
   private async handleWorkerMessage(msg: WorkerOutbound): Promise<void> {
