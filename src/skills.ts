@@ -6,6 +6,7 @@
   SkillValidationError,
 } from './types.js';
 import { OPFS_SKILLS_ROOT } from './config.js';
+import { getOpfsRoot } from './opfs.js';
 
 const BUILTIN_SKILL_BODIES = import.meta.glob('./builtin-skills/**/SKILL.md', {
   query: '?raw',
@@ -109,7 +110,7 @@ export async function writeUserSkillFile(
   validateSkillNameLike(skillName);
   const safePath = normalizeRelativePath(relativePath);
 
-  const root = await navigator.storage.getDirectory();
+  const root = await getOpfsRoot();
   const skillsDir = await root.getDirectoryHandle(OPFS_SKILLS_ROOT, { create: true });
   const skillDir = await skillsDir.getDirectoryHandle(skillName, { create: true });
 
@@ -162,7 +163,7 @@ async function loadBuiltinSkills(): Promise<SkillRecord[]> {
 }
 
 async function loadUserSkills(): Promise<SkillRecord[]> {
-  const root = await navigator.storage.getDirectory();
+  const root = await getOpfsRoot();
   let skillsDir: FileSystemDirectoryHandle;
   try {
     skillsDir = await root.getDirectoryHandle(OPFS_SKILLS_ROOT);
@@ -343,7 +344,7 @@ async function readUserSkillFile(skillName: string, relativePath: string): Promi
   validateSkillNameLike(skillName);
   const safePath = normalizeRelativePath(relativePath);
 
-  const root = await navigator.storage.getDirectory();
+  const root = await getOpfsRoot();
   const skillsDir = await root.getDirectoryHandle(OPFS_SKILLS_ROOT);
   const skillDir = await skillsDir.getDirectoryHandle(skillName);
 

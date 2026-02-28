@@ -9,10 +9,12 @@ import {
   validateSkillName,
   writeUserSkillMarkdown,
 } from '../../skill-management.js';
+import { getOpfsUnsupportedMessage, isOpfsAvailable } from '../../opfs.js';
 import { getOrchestrator } from '../../stores/orchestrator-store.js';
 
 export function SkillsPage() {
   const orch = getOrchestrator();
+  const opfsAvailable = isOpfsAvailable();
   const [skills, setSkills] = useState<SkillRecord[]>([]);
   const [selectedName, setSelectedName] = useState<string>('');
   const [content, setContent] = useState('');
@@ -35,7 +37,7 @@ export function SkillsPage() {
 
   const loadData = useCallback(async () => {
     setLoading(true);
-    setError(null);
+    setError(opfsAvailable ? null : getOpfsUnsupportedMessage());
     try {
       const all = await loadSkills();
       setSkills(all);
@@ -56,7 +58,7 @@ export function SkillsPage() {
     } finally {
       setLoading(false);
     }
-  }, [selectedName]);
+  }, [opfsAvailable, selectedName]);
 
   useEffect(() => {
     loadData();
@@ -132,7 +134,7 @@ export function SkillsPage() {
         <h2 className="text-xl font-bold flex items-center gap-2">
           <Wrench className="w-5 h-5" /> Skills
         </h2>
-        <button className="btn btn-outline btn-sm gap-1.5" onClick={loadData} disabled={loading}>
+        <button className="btn btn-outline btn-sm gap-1.5" onClick={loadData} disabled={loading || !opfsAvailable}>
           <RefreshCw className="w-4 h-4" /> Refresh
         </button>
       </div>
@@ -150,7 +152,7 @@ export function SkillsPage() {
             <button
               className="btn btn-primary btn-sm gap-1.5"
               onClick={handleCreateSkill}
-              disabled={creating || !newSkillName.trim()}
+              disabled={creating || !newSkillName.trim() || !opfsAvailable}
             >
               <Plus className="w-4 h-4" /> New Skill
             </button>
@@ -171,7 +173,9 @@ export function SkillsPage() {
                 <span className="loading loading-spinner loading-md" />
               </div>
             ) : userSkills.length === 0 ? (
-              <p className="text-sm opacity-60">No user skills yet.</p>
+              <p className="text-sm opacity-60">
+                {opfsAvailable ? 'No user skills yet.' : 'User skills require Origin Private File System support.'}
+              </p>
             ) : (
               <div className="space-y-2">
                 {userSkills.map((skill) => (

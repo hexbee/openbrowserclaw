@@ -3,6 +3,7 @@
 // ---------------------------------------------------------------------------
 
 import { OPFS_ROOT } from './config.js';
+import { getOpfsRoot } from './opfs.js';
 
 /**
  * Get a handle to a nested directory, creating intermediate dirs.
@@ -22,7 +23,7 @@ async function getNestedDir(
  * Get the group workspace directory.
  */
 async function getGroupDir(groupId: string): Promise<FileSystemDirectoryHandle> {
-  const root = await navigator.storage.getDirectory();
+  const root = await getOpfsRoot();
   // Sanitize groupId for filesystem: replace colons with dashes
   const safeId = groupId.replace(/:/g, '-');
   return getNestedDir(root, OPFS_ROOT, 'groups', safeId);

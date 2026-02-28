@@ -1,4 +1,5 @@
 ﻿import { OPFS_SKILLS_ROOT } from './config.js';
+import { getOpfsRoot } from './opfs.js';
 
 const SKILL_NAME_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
@@ -28,7 +29,7 @@ export function validateSkillName(name: string): string | null {
 }
 
 export async function listUserSkillNames(): Promise<string[]> {
-  const root = await navigator.storage.getDirectory();
+  const root = await getOpfsRoot();
   let skillsDir: FileSystemDirectoryHandle;
   try {
     skillsDir = await root.getDirectoryHandle(OPFS_SKILLS_ROOT);
@@ -61,7 +62,7 @@ export async function createUserSkillScaffold(skillName: string): Promise<void> 
   const nameError = validateSkillName(skillName);
   if (nameError) throw new Error(nameError);
 
-  const root = await navigator.storage.getDirectory();
+  const root = await getOpfsRoot();
   const skillsDir = await root.getDirectoryHandle(OPFS_SKILLS_ROOT, { create: true });
   const skillDir = await skillsDir.getDirectoryHandle(skillName, { create: true });
 
@@ -80,7 +81,7 @@ export async function createUserSkillScaffold(skillName: string): Promise<void> 
 }
 
 export async function deleteUserSkill(skillName: string): Promise<void> {
-  const root = await navigator.storage.getDirectory();
+  const root = await getOpfsRoot();
   const skillsDir = await root.getDirectoryHandle(OPFS_SKILLS_ROOT);
   await skillsDir.removeEntry(skillName, { recursive: true });
 }
@@ -100,7 +101,7 @@ async function getUserSkillDir(
   skillName: string,
   create: boolean,
 ): Promise<FileSystemDirectoryHandle> {
-  const root = await navigator.storage.getDirectory();
+  const root = await getOpfsRoot();
   const skillsDir = await root.getDirectoryHandle(OPFS_SKILLS_ROOT, { create });
   return skillsDir.getDirectoryHandle(skillName, { create });
 }
