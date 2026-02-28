@@ -1,6 +1,8 @@
 ﻿import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Download, Plus, RefreshCw, Save, Trash2, Wrench } from 'lucide-react';
 import type {
+  GitHubDiscoveredSkill,
+  GitHubSkillCollectionDiscovery,
   GitHubSkillForceUpdatePreview,
   GitHubRateLimitStatus,
   GitHubSkillSourceMetadata,
@@ -14,9 +16,11 @@ import {
   checkGitHubSkillUpdate,
   createUserSkillScaffold,
   deleteUserSkill,
+  discoverGitHubSkillInstallTarget,
   forceUpdateGitHubSkill,
   getGitHubRateLimitStatus,
   installSkillFromGitHubUrl,
+  installSelectedGitHubSkills,
   previewGitHubSkillForceUpdate,
   readGitHubSkillSourceMetadata,
   readUserSkillMarkdown,
@@ -48,6 +52,7 @@ export function SkillsPage() {
   const [githubUrl, setGithubUrl] = useState('');
   const [creating, setCreating] = useState(false);
   const [installing, setInstalling] = useState(false);
+  const [bulkInstalling, setBulkInstalling] = useState(false);
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [forcingUpdate, setForcingUpdate] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
@@ -60,6 +65,9 @@ export function SkillsPage() {
   const [gitHubRateLimitError, setGitHubRateLimitError] = useState<string | null>(null);
   const [autoCheckUpdatesEnabled, setAutoCheckUpdatesEnabled] = useState(false);
   const [lastManualCheckAt, setLastManualCheckAt] = useState<string | null>(null);
+  const [gitHubCollectionDiscovery, setGitHubCollectionDiscovery] = useState<GitHubSkillCollectionDiscovery | null>(null);
+  const [gitHubCollectionFilter, setGitHubCollectionFilter] = useState('');
+  const [selectedGitHubCollectionPaths, setSelectedGitHubCollectionPaths] = useState<string[]>([]);
 
   const userSkills = useMemo(
     () => skills.filter((s) => s.source === 'user').sort((a, b) => a.name.localeCompare(b.name)),
@@ -70,6 +78,16 @@ export function SkillsPage() {
     () => userSkills.find((s) => s.name === selectedName) || null,
     [userSkills, selectedName],
   );
+
+  const filteredGitHubCollectionSkills = useMemo(() => {
+    if (!gitHubCollectionDiscovery) return [];
+    const filter = gitHubCollectionFilter.trim().toLowerCase();
+    if (!filter) return gitHubCollectionDiscovery.skills;
+    return gitHubCollectionDiscovery.skills.filter((skill) =>
+      skill.skillName.toLowerCase().includes(filter) ||
+      skill.description.toLowerCase().includes(filter) ||
+      skill.path.toLowerCase().includes(filter));
+  }, [gitHubCollectionDiscovery, gitHubCollectionFilter]);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -265,26 +283,83 @@ export function SkillsPage() {
 
     setInstalling(true);
     setError(null);
-    setStatus('Installing skill from GitHub...');
+    setStatus('Checking GitHub target...');
     try {
-      const result = await installSkillFromGitHubUrl(url);
-      await orch.refreshSkills();
-      await loadData();
-      setSelectedName(result.skillName);
-      setGithubUrl('');
-      const markdown = await readUserSkillMarkdown(result.skillName);
-      setContent(markdown);
-      const source = await readGitHubSkillSourceMetadata(result.skillName);
-      setSelectedGitHubSource(source);
-      setUpdateResult(null);
-      setForceUpdatePreview(null);
-      setStatus(`Installed ${result.skillName} (${result.fileCount} files).`);
+      const target = await discoverGitHubSkillInstallTarget(url);
+      if (target.kind === 'collection') {
+        setGitHubCollectionDiscovery(target);
+        setGitHubCollectionFilter('');
+        setSelectedGitHubCollectionPaths([]);
+        setStatus(`Found ${target.skills.length} installable skills. Select the ones you want to add.`);
+      } else {
+        const result = await installSkillFromGitHubUrl(url);
+        await orch.refreshSkills();
+        await loadData();
+        setSelectedName(result.skillName);
+        setGithubUrl('');
+        const markdown = await readUserSkillMarkdown(result.skillName);
+        setContent(markdown);
+        const source = await readGitHubSkillSourceMetadata(result.skillName);
+        setSelectedGitHubSource(source);
+        setUpdateResult(null);
+        setForceUpdatePreview(null);
+        setStatus(`Installed ${result.skillName} (${result.fileCount} files).`);
+      }
       await refreshGitHubRateLimit();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       setStatus(null);
     } finally {
       setInstalling(false);
+    }
+  }
+
+  async function handleInstallSelectedGitHubSkills() {
+    if (!gitHubCollectionDiscovery || selectedGitHubCollectionPaths.length === 0) return;
+
+    const selectedSkills = gitHubCollectionDiscovery.skills.filter((skill) =>
+      selectedGitHubCollectionPaths.includes(skill.path));
+    if (selectedSkills.length === 0) return;
+
+    setBulkInstalling(true);
+    setError(null);
+    setStatus(`Installing ${selectedSkills.length} selected skills from GitHub...`);
+    try {
+      const result = await installSelectedGitHubSkills(selectedSkills);
+      const installed = result.results.filter((item) => item.status === 'installed');
+      const skipped = result.results.filter((item) => item.status === 'skipped');
+      const failed = result.results.filter((item) => item.status === 'failed');
+
+      await orch.refreshSkills();
+      await loadData();
+
+      if (installed.length > 0) {
+        const firstInstalled = installed[0].skillName;
+        setSelectedName(firstInstalled);
+        const markdown = await readUserSkillMarkdown(firstInstalled);
+        setContent(markdown);
+        const source = await readGitHubSkillSourceMetadata(firstInstalled);
+        setSelectedGitHubSource(source);
+        setUpdateResult(null);
+        setForceUpdatePreview(null);
+      }
+
+      setGitHubCollectionDiscovery(null);
+      setGitHubCollectionFilter('');
+      setSelectedGitHubCollectionPaths([]);
+      setGithubUrl('');
+      setStatus(`${installed.length} installed, ${skipped.length} skipped, ${failed.length} failed.`);
+      if (failed.length > 0) {
+        setError(failed
+          .map((item) => `${item.skillName}: ${item.message ?? 'Install failed'}`)
+          .join('; '));
+      }
+      await refreshGitHubRateLimit();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setStatus(null);
+    } finally {
+      setBulkInstalling(false);
     }
   }
 
@@ -427,6 +502,27 @@ export function SkillsPage() {
     return new Date(value).toLocaleTimeString();
   }
 
+  function closeGitHubCollectionDialog() {
+    if (bulkInstalling) return;
+    setGitHubCollectionDiscovery(null);
+    setGitHubCollectionFilter('');
+    setSelectedGitHubCollectionPaths([]);
+  }
+
+  function toggleGitHubCollectionSkill(path: string) {
+    setSelectedGitHubCollectionPaths((current) => (
+      current.includes(path)
+        ? current.filter((item) => item !== path)
+        : [...current, path]
+    ));
+  }
+
+  function selectAllGitHubCollectionSkills(skillsToSelect: GitHubDiscoveredSkill[]) {
+    setSelectedGitHubCollectionPaths(skillsToSelect
+      .filter((skill) => !skill.alreadyInstalled)
+      .map((skill) => skill.path));
+  }
+
   return (
     <div className="h-full overflow-hidden p-4 sm:p-6 max-w-6xl mx-auto flex flex-col gap-4">
       <div className="flex items-center justify-between">
@@ -447,7 +543,7 @@ export function SkillsPage() {
                 <input
                   type="text"
                   className="input input-bordered input-sm flex-1"
-                  placeholder="https://github.com/owner/repo/tree/main/skills/my-skill"
+                  placeholder="https://github.com/owner/repo or https://github.com/owner/repo/tree/main/skills/my-skill"
                   value={githubUrl}
                   onChange={(e) => setGithubUrl(e.target.value)}
                 />
@@ -461,7 +557,7 @@ export function SkillsPage() {
                 </button>
               </div>
               <p className="text-xs opacity-60 mt-2">
-                MVP currently supports public GitHub directory URLs that point to a single skill folder.
+                Supports public GitHub skill folders, repositories whose root already contains `SKILL.md`, and parent directories that contain many skills.
               </p>
               <div className="text-xs mt-2 rounded border border-base-300 bg-base-100 px-2 py-2">
                 {gitHubRateLimit ? (
@@ -676,6 +772,100 @@ export function SkillsPage() {
           </div>
           <form method="dialog" className="modal-backdrop">
             <button onClick={() => setForceUpdatePreview(null)}>close</button>
+          </form>
+        </dialog>
+      )}
+
+      {gitHubCollectionDiscovery && (
+        <dialog className="modal modal-open">
+          <div className="modal-box max-w-3xl">
+            <h3 className="font-bold text-lg">Select skills to install</h3>
+            <p className="py-2 text-sm opacity-80 break-all">
+              {gitHubCollectionDiscovery.owner}/{gitHubCollectionDiscovery.repo}@{gitHubCollectionDiscovery.ref}
+              {gitHubCollectionDiscovery.path ? `/${gitHubCollectionDiscovery.path}` : ''}
+            </p>
+            <div className="flex flex-col gap-3">
+              {gitHubCollectionDiscovery.warnings.length > 0 && (
+                <div className="rounded border border-warning/40 bg-warning/10 px-3 py-2 text-xs">
+                  Some directories could not be checked: {gitHubCollectionDiscovery.warnings.join('; ')}
+                </div>
+              )}
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <input
+                  type="text"
+                  className="input input-bordered input-sm flex-1"
+                  placeholder="Filter discovered skills"
+                  value={gitHubCollectionFilter}
+                  onChange={(e) => setGitHubCollectionFilter(e.target.value)}
+                />
+                <button
+                  className="btn btn-outline btn-sm"
+                  onClick={() => selectAllGitHubCollectionSkills(filteredGitHubCollectionSkills)}
+                  disabled={bulkInstalling || filteredGitHubCollectionSkills.every((skill) => skill.alreadyInstalled)}
+                >
+                  Select all
+                </button>
+                <button
+                  className="btn btn-outline btn-sm"
+                  onClick={() => setSelectedGitHubCollectionPaths([])}
+                  disabled={bulkInstalling || selectedGitHubCollectionPaths.length === 0}
+                >
+                  Clear all
+                </button>
+              </div>
+              <div className="max-h-[420px] overflow-y-auto rounded border border-base-300 bg-base-100">
+                {filteredGitHubCollectionSkills.length === 0 ? (
+                  <div className="px-3 py-6 text-sm opacity-60">No skills match the current filter.</div>
+                ) : (
+                  <div className="divide-y divide-base-300">
+                    {filteredGitHubCollectionSkills.map((skill) => {
+                      const checked = selectedGitHubCollectionPaths.includes(skill.path);
+                      return (
+                        <label
+                          key={skill.path}
+                          className={`flex items-start gap-3 px-3 py-3 ${skill.alreadyInstalled ? 'opacity-60' : 'cursor-pointer'}`}
+                        >
+                          <input
+                            type="checkbox"
+                            className="checkbox checkbox-sm mt-0.5"
+                            checked={checked}
+                            disabled={bulkInstalling || skill.alreadyInstalled}
+                            onChange={() => toggleGitHubCollectionSkill(skill.path)}
+                          />
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <div className="font-medium text-sm">{skill.skillName}</div>
+                              {skill.alreadyInstalled && (
+                                <span className="badge badge-outline badge-sm">Installed</span>
+                              )}
+                            </div>
+                            <div className="text-xs opacity-70 mt-1 break-all">{skill.path}</div>
+                            <div className="text-xs opacity-80 mt-1">
+                              {skill.description || 'No description provided.'}
+                            </div>
+                          </div>
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="modal-action">
+              <button className="btn btn-ghost" onClick={closeGitHubCollectionDialog} disabled={bulkInstalling}>
+                Cancel
+              </button>
+              <button
+                className="btn btn-primary"
+                onClick={handleInstallSelectedGitHubSkills}
+                disabled={bulkInstalling || selectedGitHubCollectionPaths.length === 0}
+              >
+                {bulkInstalling ? 'Installing...' : `Install selected (${selectedGitHubCollectionPaths.length})`}
+              </button>
+            </div>
+          </div>
+          <form method="dialog" className="modal-backdrop">
+            <button onClick={closeGitHubCollectionDialog}>close</button>
           </form>
         </dialog>
       )}

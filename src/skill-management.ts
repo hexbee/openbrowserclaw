@@ -1,9 +1,12 @@
 ﻿import { OPFS_SKILLS_ROOT } from './config.js';
 import { getOpfsRoot } from './opfs.js';
 import type {
+  GitHubBulkInstallResult,
+  GitHubDiscoveredSkill,
   GitHubSkillForceUpdateResult,
   GitHubSkillForceUpdatePreview,
   GitHubSkillLocalChanges,
+  GitHubSkillInstallDiscovery,
   GitHubRateLimitStatus,
   GitHubSkillSourceFile,
   GitHubSkillSourceMetadata,
@@ -38,6 +41,10 @@ interface GitHubRepoTarget {
   originalUrl: string;
 }
 
+interface GitHubRepositoryInfo {
+  default_branch?: string;
+}
+
 interface GitHubDirectoryEntry {
   name: string;
   path: string;
@@ -64,6 +71,11 @@ interface GitHubInstallResult {
 interface GitHubSkillSnapshot {
   skillName: string;
   files: Array<{ path: string; sha: string }>;
+}
+
+interface ParsedSkillFrontmatter {
+  name: string;
+  description: string;
 }
 
 export function validateSkillName(name: string): string | null {
@@ -129,37 +141,84 @@ export async function createUserSkillScaffold(skillName: string): Promise<void> 
 }
 
 export async function installSkillFromGitHubUrl(rawUrl: string): Promise<GitHubInstallResult> {
-  const target = parseGitHubSkillUrl(rawUrl);
-  const { skillName, files } = await fetchGitHubSkillBundle(target);
+  const target = await parseGitHubSkillUrl(rawUrl);
+  return installGitHubSkillTarget(target);
+}
 
-  const existing = await listUserSkillNames();
-  if (existing.includes(skillName)) {
-    throw new Error(`Skill already exists: ${skillName}`);
+export async function discoverGitHubSkillInstallTarget(rawUrl: string): Promise<GitHubSkillInstallDiscovery> {
+  const target = await parseGitHubSkillUrl(rawUrl);
+  const rootEntries = await fetchGitHubDirectory(target.owner, target.repo, target.ref, target.path);
+  if (rootEntries.some((entry) => entry.type === 'file' && entry.name === 'SKILL.md')) {
+    return { kind: 'single' };
   }
 
-  const skillDir = await getUserSkillDir(skillName, true);
-  await writeGitHubSkillBundle(skillDir, target, files);
+  const childDirectories = rootEntries.filter((entry) => entry.type === 'dir');
+  const existing = new Set(await listUserSkillNames());
+  const warnings: string[] = [];
+  const discovered = await Promise.all(childDirectories.map(async (entry) => {
+    try {
+      return await discoverGitHubSkillDirectory(target, entry.path, existing);
+    } catch (err) {
+      warnings.push(err instanceof Error ? `${entry.name}: ${err.message}` : `${entry.name}: ${String(err)}`);
+      return null;
+    }
+  }));
 
-  const metadata: GitHubSkillSourceMetadata = {
-    version: 1,
-    type: 'github',
+  const skills = discovered
+    .filter((item): item is GitHubDiscoveredSkill => item !== null)
+    .sort((a, b) => a.skillName.localeCompare(b.skillName));
+  if (skills.length === 0) {
+    throw new Error('No installable skills found in this GitHub directory');
+  }
+
+  return {
+    kind: 'collection',
     owner: target.owner,
     repo: target.repo,
     ref: target.ref,
     path: target.path,
     originalUrl: target.originalUrl,
-    installedAt: new Date().toISOString(),
-    files: files.map<GitHubSkillSourceFile>(({ path, sha }) => ({
-      path: toRelativeSkillPath(target.path, path),
-      sha,
-    })),
+    skills,
+    warnings: warnings.sort((a, b) => a.localeCompare(b)),
   };
-  await writeSkillFileText(skillDir, SOURCE_METADATA_FILENAME, JSON.stringify(metadata, null, 2));
+}
 
-  return {
-    skillName,
-    fileCount: files.length,
-  };
+export async function installSelectedGitHubSkills(skills: GitHubDiscoveredSkill[]): Promise<GitHubBulkInstallResult> {
+  const results = await Promise.all(skills.map(async (skill) => {
+    try {
+      const installed = await installGitHubSkillTarget({
+        owner: skill.owner,
+        repo: skill.repo,
+        ref: skill.ref,
+        path: skill.path,
+        originalUrl: skill.originalUrl,
+      });
+      return {
+        skillName: installed.skillName,
+        status: 'installed' as const,
+        fileCount: installed.fileCount,
+        message: null,
+      };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (message.startsWith('Skill already exists:')) {
+        return {
+          skillName: skill.skillName,
+          status: 'skipped' as const,
+          fileCount: 0,
+          message,
+        };
+      }
+      return {
+        skillName: skill.skillName,
+        status: 'failed' as const,
+        fileCount: 0,
+        message,
+      };
+    }
+  }));
+
+  return { results };
 }
 
 export async function readGitHubSkillSourceMetadata(skillName: string): Promise<GitHubSkillSourceMetadata | null> {
@@ -426,7 +485,8 @@ async function fetchGitHubSkillBundle(
 
   const skillMarkdownBytes = await fetchGitHubFileBytes(skillMarkdownEntry.url);
   const skillMarkdown = new TextDecoder().decode(skillMarkdownBytes);
-  const skillName = extractSkillNameFromMarkdown(skillMarkdown);
+  const parsedSkill = parseSkillFrontmatter(skillMarkdown);
+  const skillName = parsedSkill.name;
   const nameError = validateSkillName(skillName);
   if (nameError) throw new Error(`Invalid skill name in SKILL.md: ${nameError}`);
 
@@ -451,7 +511,8 @@ async function fetchGitHubSkillSnapshot(target: GitHubRepoTarget): Promise<GitHu
 
   const skillMarkdownBytes = await fetchGitHubFileBytes(skillMarkdownEntry.url);
   const skillMarkdown = new TextDecoder().decode(skillMarkdownBytes);
-  const skillName = extractSkillNameFromMarkdown(skillMarkdown);
+  const parsedSkill = parseSkillFrontmatter(skillMarkdown);
+  const skillName = parsedSkill.name;
   const nameError = validateSkillName(skillName);
   if (nameError) throw new Error(`Invalid skill name in SKILL.md: ${nameError}`);
 
@@ -519,7 +580,8 @@ async function fetchGitHubDirectory(
     .filter(Boolean)
     .map((segment) => encodeURIComponent(segment))
     .join('/');
-  const url = `${GITHUB_API_BASE}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${encodedPath}?ref=${encodeURIComponent(ref)}`;
+  const contentsPath = encodedPath ? `/contents/${encodedPath}` : '/contents';
+  const url = `${GITHUB_API_BASE}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}${contentsPath}?ref=${encodeURIComponent(ref)}`;
   const response = await fetchWithTimeout(url, {
     headers: {
       Accept: 'application/vnd.github+json',
@@ -534,6 +596,42 @@ async function fetchGitHubDirectory(
     throw new Error('GitHub URL must point to a directory');
   }
   return payload as GitHubDirectoryEntry[];
+}
+
+async function discoverGitHubSkillDirectory(
+  baseTarget: GitHubRepoTarget,
+  directoryPath: string,
+  existingSkills: Set<string>,
+): Promise<GitHubDiscoveredSkill | null> {
+  const entries = await fetchGitHubDirectory(baseTarget.owner, baseTarget.repo, baseTarget.ref, directoryPath);
+  const skillMarkdownEntry = entries.find((entry) => entry.type === 'file' && entry.name === 'SKILL.md');
+  if (!skillMarkdownEntry) {
+    return null;
+  }
+
+  const skillMarkdownBytes = await fetchGitHubFileBytes(skillMarkdownEntry.url);
+  const skillMarkdown = new TextDecoder().decode(skillMarkdownBytes);
+  const parsedSkill = parseSkillFrontmatter(skillMarkdown);
+  const nameError = validateSkillName(parsedSkill.name);
+  if (nameError) {
+    throw new Error(`Invalid skill name in SKILL.md: ${nameError}`);
+  }
+
+  const remoteDirName = directoryPath.split('/').filter(Boolean).pop();
+  if (remoteDirName && remoteDirName !== parsedSkill.name) {
+    throw new Error('GitHub directory name must match the skill name declared in SKILL.md');
+  }
+
+  return {
+    skillName: parsedSkill.name,
+    description: parsedSkill.description,
+    owner: baseTarget.owner,
+    repo: baseTarget.repo,
+    ref: baseTarget.ref,
+    path: directoryPath,
+    originalUrl: buildGitHubTreeUrl(baseTarget.owner, baseTarget.repo, baseTarget.ref, directoryPath),
+    alreadyInstalled: existingSkills.has(parsedSkill.name),
+  };
 }
 
 async function fetchGitHubFileBytes(fileApiUrl: string): Promise<Uint8Array> {
@@ -558,7 +656,7 @@ async function fetchGitHubFileBytes(fileApiUrl: string): Promise<Uint8Array> {
 
 async function buildGitHubRequestError(
   response: Response,
-  requestKind: 'directory' | 'file' | 'rate limit',
+  requestKind: 'directory' | 'file' | 'rate limit' | 'repository',
 ): Promise<Error> {
   const rateRemaining = response.headers.get('x-ratelimit-remaining');
   const rateReset = response.headers.get('x-ratelimit-reset');
@@ -577,7 +675,8 @@ async function buildGitHubRequestError(
     const resetSuffix = rateReset
       ? ` Try again after ${new Date(Number(rateReset) * 1000).toLocaleTimeString()}.`
       : '';
-    return new Error(`GitHub API rate limit exceeded while checking ${requestKind}s.${resetSuffix}`);
+    const requestLabel = requestKind === 'repository' ? 'repository metadata' : `${requestKind}s`;
+    return new Error(`GitHub API rate limit exceeded while checking ${requestLabel}.${resetSuffix}`);
   }
 
   const suffix = detail ? `: ${detail}` : '';
@@ -619,7 +718,40 @@ function decodeBase64ToBytes(content: string): Uint8Array {
   return bytes;
 }
 
-function parseGitHubSkillUrl(rawUrl: string): GitHubRepoTarget {
+async function installGitHubSkillTarget(target: GitHubRepoTarget): Promise<GitHubInstallResult> {
+  const { skillName, files } = await fetchGitHubSkillBundle(target);
+
+  const existing = await listUserSkillNames();
+  if (existing.includes(skillName)) {
+    throw new Error(`Skill already exists: ${skillName}`);
+  }
+
+  const skillDir = await getUserSkillDir(skillName, true);
+  await writeGitHubSkillBundle(skillDir, target, files);
+
+  const metadata: GitHubSkillSourceMetadata = {
+    version: 1,
+    type: 'github',
+    owner: target.owner,
+    repo: target.repo,
+    ref: target.ref,
+    path: target.path,
+    originalUrl: target.originalUrl,
+    installedAt: new Date().toISOString(),
+    files: files.map<GitHubSkillSourceFile>(({ path, sha }) => ({
+      path: toRelativeSkillPath(target.path, path),
+      sha,
+    })),
+  };
+  await writeSkillFileText(skillDir, SOURCE_METADATA_FILENAME, JSON.stringify(metadata, null, 2));
+
+  return {
+    skillName,
+    fileCount: files.length,
+  };
+}
+
+async function parseGitHubSkillUrl(rawUrl: string): Promise<GitHubRepoTarget> {
   let url: URL;
   try {
     url = new URL(rawUrl.trim());
@@ -632,15 +764,31 @@ function parseGitHubSkillUrl(rawUrl: string): GitHubRepoTarget {
   }
 
   const parts = url.pathname.split('/').filter(Boolean);
-  if (parts.length < 5 || parts[2] !== 'tree') {
-    throw new Error('Use a GitHub directory URL like https://github.com/owner/repo/tree/ref/path');
+  if (parts.length < 2) {
+    throw new Error('Use a GitHub repo URL like https://github.com/owner/repo or a directory URL');
   }
 
-  const [owner, repo, , ref, ...pathParts] = parts;
-  const path = pathParts.join('/');
-  if (!path) {
-    throw new Error('GitHub URL must point to a skill directory');
+  const [owner, repo, third, fourth, ...rest] = parts;
+  if (!owner || !repo) {
+    throw new Error('Use a GitHub repo URL like https://github.com/owner/repo or a directory URL');
   }
+
+  if (!third) {
+    return {
+      owner,
+      repo,
+      ref: await fetchGitHubDefaultBranch(owner, repo),
+      path: '',
+      originalUrl: url.toString(),
+    };
+  }
+
+  if (third !== 'tree' || !fourth) {
+    throw new Error('Use a GitHub repo URL like https://github.com/owner/repo or a directory URL');
+  }
+
+  const ref = fourth;
+  const path = rest.join('/');
 
   return {
     owner,
@@ -651,7 +799,26 @@ function parseGitHubSkillUrl(rawUrl: string): GitHubRepoTarget {
   };
 }
 
-function extractSkillNameFromMarkdown(markdown: string): string {
+async function fetchGitHubDefaultBranch(owner: string, repo: string): Promise<string> {
+  const url = `${GITHUB_API_BASE}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
+  const response = await fetchWithTimeout(url, {
+    headers: {
+      Accept: 'application/vnd.github+json',
+    },
+  });
+  if (!response.ok) {
+    throw await buildGitHubRequestError(response, 'repository');
+  }
+
+  const payload = await response.json() as GitHubRepositoryInfo;
+  if (typeof payload.default_branch !== 'string' || !payload.default_branch) {
+    throw new Error('GitHub repository metadata did not include a default branch');
+  }
+
+  return payload.default_branch;
+}
+
+function parseSkillFrontmatter(markdown: string): ParsedSkillFrontmatter {
   const normalized = markdown.replace(/^\uFEFF/, '');
   const frontmatterMatch = normalized.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/);
   if (!frontmatterMatch) {
@@ -663,12 +830,31 @@ function extractSkillNameFromMarkdown(markdown: string): string {
     throw new Error('SKILL.md frontmatter must define name');
   }
 
-  return nameMatch[2];
+  const descriptionMatch = frontmatterMatch[1].match(/(?:^|\r?\n)description:\s*("?)(.*?)\1(?:\r?\n|$)/);
+  return {
+    name: nameMatch[2],
+    description: descriptionMatch?.[2]?.trim() ?? '',
+  };
+}
+
+function buildGitHubTreeUrl(owner: string, repo: string, ref: string, path: string): string {
+  const normalizedPath = path.replace(/^\/+|\/+$/g, '');
+  const encodedSegments = normalizedPath
+    .split('/')
+    .filter(Boolean)
+    .map((segment) => encodeURIComponent(segment));
+  if (encodedSegments.length === 0) {
+    return `https://github.com/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
+  }
+  return `https://github.com/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/tree/${encodeURIComponent(ref)}/${encodedSegments.join('/')}`;
 }
 
 function toRelativeSkillPath(rootPath: string, fullPath: string): string {
   const normalizedRoot = rootPath.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
   const normalizedFullPath = fullPath.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+  if (!normalizedRoot) {
+    return normalizedFullPath;
+  }
   if (normalizedFullPath === normalizedRoot) {
     throw new Error('Invalid skill file path');
   }

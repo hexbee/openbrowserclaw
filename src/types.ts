@@ -216,6 +216,47 @@ export interface GitHubRateLimitStatus {
   resetAt: string | null;
 }
 
+export interface GitHubDiscoveredSkill {
+  skillName: string;
+  description: string;
+  owner: string;
+  repo: string;
+  ref: string;
+  path: string;
+  originalUrl: string;
+  alreadyInstalled: boolean;
+}
+
+export interface GitHubSkillCollectionDiscovery {
+  kind: 'collection';
+  owner: string;
+  repo: string;
+  ref: string;
+  path: string;
+  originalUrl: string;
+  skills: GitHubDiscoveredSkill[];
+  warnings: string[];
+}
+
+export interface GitHubSkillSingleDiscovery {
+  kind: 'single';
+}
+
+export type GitHubSkillInstallDiscovery =
+  | GitHubSkillCollectionDiscovery
+  | GitHubSkillSingleDiscovery;
+
+export interface GitHubBulkInstallItemResult {
+  skillName: string;
+  status: 'installed' | 'skipped' | 'failed';
+  fileCount: number;
+  message: string | null;
+}
+
+export interface GitHubBulkInstallResult {
+  results: GitHubBulkInstallItemResult[];
+}
+
 /** Orchestrator state machine */
 export type OrchestratorState = 'idle' | 'thinking' | 'responding';
 
