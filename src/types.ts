@@ -168,6 +168,54 @@ export interface SkillSummary {
   user: number;
 }
 
+export interface GitHubSkillSourceFile {
+  path: string;
+  sha: string;
+}
+
+export interface GitHubSkillSourceMetadata {
+  version: 1;
+  type: 'github';
+  owner: string;
+  repo: string;
+  ref: string;
+  path: string;
+  originalUrl: string;
+  installedAt: string;
+  files: GitHubSkillSourceFile[];
+}
+
+export interface GitHubSkillUpdateCheckResult {
+  skillName: string;
+  updateAvailable: boolean;
+  added: string[];
+  modified: string[];
+  removed: string[];
+  remoteFileCount: number;
+}
+
+export interface GitHubSkillForceUpdateResult extends GitHubSkillUpdateCheckResult {
+  fileCount: number;
+}
+
+export interface GitHubSkillLocalChanges {
+  modified: string[];
+  missing: string[];
+  untracked: string[];
+}
+
+export interface GitHubSkillForceUpdatePreview {
+  skillName: string;
+  localChanges: GitHubSkillLocalChanges;
+  hasLocalChanges: boolean;
+}
+
+export interface GitHubRateLimitStatus {
+  limit: number | null;
+  remaining: number | null;
+  resetAt: string | null;
+}
+
 /** Orchestrator state machine */
 export type OrchestratorState = 'idle' | 'thinking' | 'responding';
 

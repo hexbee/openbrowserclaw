@@ -7,7 +7,7 @@ import {
   Palette, KeyRound, Eye, EyeOff, Bot, MessageSquare,
   Smartphone, HardDrive, Lock, Check, Wrench,
 } from 'lucide-react';
-import { getConfig } from '../../db.js';
+import { getConfig, setConfig } from '../../db.js';
 import { CONFIG_KEYS, DEFAULT_ANTHROPIC_BASE_URL } from '../../config.js';
 import { getStorageEstimate, requestPersistentStorage } from '../../storage.js';
 import { decryptValue } from '../../crypto.js';
@@ -56,6 +56,8 @@ export function SettingsPage() {
   const [storageQuota, setStorageQuota] = useState(0);
   const [isPersistent, setIsPersistent] = useState(false);
   const [skillsSummary, setSkillsSummary] = useState<SkillSummary>(orch.getSkillsSummary());
+  const [skillsAutoCheckUpdates, setSkillsAutoCheckUpdates] = useState(false);
+  const [skillsAutoCheckSaved, setSkillsAutoCheckSaved] = useState(false);
 
   // Theme
   const { theme, setTheme } = useThemeStore();
@@ -97,6 +99,7 @@ export function SettingsPage() {
       }
 
       setSkillsSummary(orch.getSkillsSummary());
+      setSkillsAutoCheckUpdates((await getConfig(CONFIG_KEYS.SKILLS_AUTO_CHECK_UPDATES)) === 'true');
     }
     load();
   }, []);
@@ -146,6 +149,13 @@ export function SettingsPage() {
   async function handleRefreshSkills() {
     const summary = await orch.refreshSkills();
     setSkillsSummary(summary);
+  }
+
+  async function handleSaveSkillsAutoCheckUpdates(enabled: boolean) {
+    setSkillsAutoCheckUpdates(enabled);
+    await setConfig(CONFIG_KEYS.SKILLS_AUTO_CHECK_UPDATES, String(enabled));
+    setSkillsAutoCheckSaved(true);
+    setTimeout(() => setSkillsAutoCheckSaved(false), 2000);
   }
 
   const storagePercent = storageQuota > 0 ? (storageUsage / storageQuota) * 100 : 0;
@@ -383,6 +393,25 @@ export function SettingsPage() {
             <button className="btn btn-outline btn-sm" onClick={handleRefreshSkills}>
               Refresh Skills
             </button>
+          </div>
+          <div className="flex items-start justify-between gap-3 rounded border border-base-300 bg-base-100 px-3 py-3">
+            <div>
+              <div className="text-sm font-medium">Auto-check GitHub skill updates</div>
+              <p className="text-xs opacity-70 mt-1">
+                Off by default. When enabled, the Skills page checks GitHub-backed skills in the background and consumes GitHub API quota.
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              {skillsAutoCheckSaved && (
+                <span className="text-success text-sm flex items-center gap-1"><Check className="w-4 h-4" /> Saved</span>
+              )}
+              <input
+                type="checkbox"
+                className="toggle toggle-primary"
+                checked={skillsAutoCheckUpdates}
+                onChange={(e) => handleSaveSkillsAutoCheckUpdates(e.target.checked)}
+              />
+            </div>
           </div>
         </div>
       </div>

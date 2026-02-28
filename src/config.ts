@@ -76,4 +76,5 @@ export const CONFIG_KEYS = {
   PASSPHRASE_SALT: 'passphrase_salt',
   PASSPHRASE_VERIFY: 'passphrase_verify',
   ASSISTANT_NAME: 'assistant_name',
+  SKILLS_AUTO_CHECK_UPDATES: 'skills_auto_check_updates',
 } as const;
